@@ -1,0 +1,19 @@
+[Unit]
+Description=CPA Quota Dashboard
+After=network.target nginx.service
+
+[Service]
+Type=simple
+User=cc-dan
+Group=cc-dan
+WorkingDirectory=/home/cc-dan/projects/CPA-quota
+EnvironmentFile=/home/cc-dan/projects/CPA-quota/.env.production
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node dist/server/server/index.js
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
