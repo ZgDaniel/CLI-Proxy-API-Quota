@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { AlertConfig, AlertConfigResponse, OverviewAccount, OverviewProvider, OverviewResponse, SessionResponse } from '../shared/types';
+import type { AlertConfig, AlertConfigResponse, AlertTestResponse, OverviewAccount, OverviewProvider, OverviewResponse, SessionResponse } from '../shared/types';
 
 type LoadState = 'checking' | 'login' | 'dashboard' | 'public';
 
@@ -182,7 +182,7 @@ function AccountCard({
   );
 }
 
-const checkIntervalOptions = [
+const refreshIntervalOptions = [
   { value: 60, label: '1 分钟' },
   { value: 300, label: '5 分钟' },
   { value: 600, label: '10 分钟' },
@@ -191,26 +191,68 @@ const checkIntervalOptions = [
   { value: 18000, label: '5 小时' },
 ];
 
-function AlertPanel({ config, onSave }: { config: AlertConfig; onSave: (patch: Partial<AlertConfig>) => Promise<void> }) {
+function AlertPanel({ config, onSave, onTest }: {
+  config: AlertConfig;
+  onSave: (patch: Partial<AlertConfig>) => Promise<void>;
+  onTest: () => Promise<{ ok: boolean; error?: string }>;
+}) {
   const [editing, setEditing] = useState(false);
   const [enabled, setEnabled] = useState(config.enabled);
   const [webhookUrl, setWebhookUrl] = useState(config.webhook_url);
-  const [threshold, setThreshold] = useState(config.threshold);
-  const [interval, setInterval2] = useState(config.check_interval_seconds);
+  const [thresholds, setThresholds] = useState<number[]>(config.thresholds);
+  const [interval, setInterval2] = useState(config.refresh_interval_seconds);
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; error?: string } | null>(null);
 
   useEffect(() => {
     setEnabled(config.enabled);
     setWebhookUrl(config.webhook_url);
-    setThreshold(config.threshold);
-    setInterval2(config.check_interval_seconds);
+    setThresholds(config.thresholds);
+    setInterval2(config.refresh_interval_seconds);
   }, [config]);
 
   const handleSave = async () => {
     setSaving(true);
-    await onSave({ enabled, webhook_url: webhookUrl, threshold, check_interval_seconds: interval });
-    setEditing(false);
-    setSaving(false);
+    try {
+      await onSave({ enabled, webhook_url: webhookUrl, thresholds, refresh_interval_seconds: interval });
+      setEditing(false);
+    } catch {
+      // error handled by api helper
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      // Save first to ensure webhook URL is updated
+      await onSave({ webhook_url: webhookUrl });
+      const result = await onTest();
+      setTestResult(result);
+    } catch {
+      setTestResult({ ok: false, error: '请求失败' });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const addThreshold = () => {
+    const sorted = [...thresholds].sort((a, b) => a - b);
+    const next = sorted.length === 0 ? 50 : Math.min(95, sorted[sorted.length - 1] + 10);
+    setThresholds([...thresholds, next].sort((a, b) => a - b));
+  };
+
+  const removeThreshold = (index: number) => {
+    setThresholds(thresholds.filter((_, i) => i !== index));
+  };
+
+  const updateThreshold = (index: number, value: number) => {
+    const next = [...thresholds];
+    next[index] = value;
+    setThresholds(next.sort((a, b) => a - b));
   };
 
   return (
@@ -238,31 +280,53 @@ function AlertPanel({ config, onSave }: { config: AlertConfig; onSave: (patch: P
           </label>
           <label>
             Webhook URL
-            <input
-              type="url"
-              value={webhookUrl}
-              onChange={(e) => setWebhookUrl(e.target.value)}
-              placeholder="https://your-webhook-endpoint/..."
-            />
-          </label>
-          <label>
-            告警阈值（剩余百分比低于此值时触发）
             <div className="alert-form__row">
               <input
-                type="range"
-                min={5}
-                max={95}
-                step={5}
-                value={threshold}
-                onChange={(e) => setThreshold(Number(e.target.value))}
+                type="url"
+                value={webhookUrl}
+                onChange={(e) => setWebhookUrl(e.target.value)}
+                placeholder="https://your-webhook-endpoint/..."
               />
-              <strong className="alert-form__threshold">{threshold}%</strong>
+              <button
+                className="alert-form__test-btn"
+                onClick={() => void handleTest()}
+                disabled={testing || !webhookUrl.trim()}
+              >
+                {testing ? '发送中...' : '测试'}
+              </button>
             </div>
           </label>
+          {testResult !== null ? (
+            <div className={testResult.ok ? 'empty-state' : 'error-box'}>
+              {testResult.ok ? 'Webhook 连接成功' : `连接失败: ${testResult.error}`}
+            </div>
+          ) : null}
+          <div>
+            <div className="alert-form__label-row">
+              <span className="alert-form__label">告警阈值</span>
+              <button className="ghost" onClick={addThreshold} disabled={thresholds.length >= 5}>+ 新增</button>
+            </div>
+            {thresholds.map((t, i) => (
+              <div key={i} className="alert-form__row alert-form__row--threshold">
+                <input
+                  type="range"
+                  min={5}
+                  max={95}
+                  step={5}
+                  value={t}
+                  onChange={(e) => updateThreshold(i, Number(e.target.value))}
+                />
+                <strong className="alert-form__threshold">{t}%</strong>
+                {thresholds.length > 1 ? (
+                  <button className="ghost alert-form__del-btn" onClick={() => removeThreshold(i)}>删除</button>
+                ) : null}
+              </div>
+            ))}
+          </div>
           <label>
-            检查间隔
+            刷新间隔（全局数据刷新周期）
             <select value={interval} onChange={(e) => setInterval2(Number(e.target.value))}>
-              {checkIntervalOptions.map((opt) => (
+              {refreshIntervalOptions.map((opt) => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
@@ -278,8 +342,8 @@ function AlertPanel({ config, onSave }: { config: AlertConfig; onSave: (patch: P
         <div className="alert-panel__summary">
           {config.enabled ? (
             <>
-              <span>阈值 ≤ {config.threshold}%</span>
-              <span>每 {checkIntervalOptions.find((o) => o.value === config.check_interval_seconds)?.label ?? `${config.check_interval_seconds}s`} 检查</span>
+              <span>阈值 {config.thresholds.sort((a, b) => a - b).map((t) => `≤${t}%`).join('、')}</span>
+              <span>每 {refreshIntervalOptions.find((o) => o.value === config.refresh_interval_seconds)?.label ?? `${config.refresh_interval_seconds}s`} 刷新</span>
               <span className="alert-panel__url">{config.webhook_url ? new URL(config.webhook_url).host : '未配置'}</span>
             </>
           ) : (
@@ -375,8 +439,8 @@ export function App() {
   const [alertConfig, setAlertConfig] = useState<AlertConfig>({
     enabled: false,
     webhook_url: '',
-    threshold: 50,
-    check_interval_seconds: 300,
+    thresholds: [50],
+    refresh_interval_seconds: 300,
   });
 
   const loadAlertConfig = async () => {
@@ -394,6 +458,11 @@ export function App() {
       body: JSON.stringify(patch),
     });
     setAlertConfig(res.config);
+  };
+
+  const testAlertWebhook = async (): Promise<{ ok: boolean; error?: string }> => {
+    const res = await api<AlertTestResponse>('/api/alert/test', { method: 'POST' });
+    return res;
   };
 
   const loadOverview = async (force = false) => {
@@ -457,11 +526,12 @@ export function App() {
 
   useEffect(() => {
     if (state !== 'dashboard' && state !== 'public') return;
+    const ms = alertConfig.refresh_interval_seconds * 1000 || 60_000;
     const timer = window.setInterval(() => {
       void (state === 'dashboard' ? loadOverview(false) : loadPublicOverview());
-    }, 60_000);
+    }, ms);
     return () => window.clearInterval(timer);
-  }, [state]);
+  }, [state, alertConfig.refresh_interval_seconds]);
 
   const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -612,7 +682,7 @@ export function App() {
             <span>Quota 缓存 {fmtDateTime(overview.cache.quota_refreshed_at)}</span>
           </section>
 
-          <AlertPanel config={alertConfig} onSave={(patch) => saveAlertConfig(patch)} />
+          <AlertPanel config={alertConfig} onSave={saveAlertConfig} onTest={testAlertWebhook} />
 
           {error ? <div className="error-box">{error}</div> : null}
 
