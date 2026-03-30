@@ -139,7 +139,12 @@ app.get('/api/alert', authRequired, (_req, res) => {
 app.post('/api/alert', authRequired, (req, res) => {
   const patch: Partial<AlertConfig> = {};
   if (typeof req.body?.enabled === 'boolean') patch.enabled = req.body.enabled;
-  if (typeof req.body?.webhook_url === 'string') patch.webhook_url = req.body.webhook_url.trim();
+  if (typeof req.body?.channel === 'string') patch.channel = req.body.channel;
+  if (typeof req.body?.custom_url === 'string') patch.custom_url = req.body.custom_url.trim();
+  if (typeof req.body?.feishu_token === 'string') patch.feishu_token = req.body.feishu_token.trim();
+  if (typeof req.body?.telegram_bot_token === 'string') patch.telegram_bot_token = req.body.telegram_bot_token.trim();
+  if (typeof req.body?.telegram_chat_id === 'string') patch.telegram_chat_id = req.body.telegram_chat_id.trim();
+  if (typeof req.body?.qmsg_key === 'string') patch.qmsg_key = req.body.qmsg_key.trim();
   if (Array.isArray(req.body?.thresholds)) {
     const arr = req.body.thresholds.filter((v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 100);
     if (arr.length > 0) patch.thresholds = arr;

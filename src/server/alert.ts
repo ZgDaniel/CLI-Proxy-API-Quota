@@ -1,8 +1,13 @@
-import type { AlertConfig, OverviewResponse } from '../shared/types.js';
+import type { AlertConfig, AlertChannel, OverviewResponse } from '../shared/types.js';
 
 const DEFAULT_CONFIG: AlertConfig = {
   enabled: false,
-  webhook_url: '',
+  channel: 'custom',
+  custom_url: '',
+  feishu_token: '',
+  telegram_bot_token: '',
+  telegram_chat_id: '',
+  qmsg_key: '',
   thresholds: [50],
   refresh_interval_seconds: 300,
 };
@@ -21,7 +26,15 @@ export const updateAlertConfig = (patch: Partial<AlertConfig>): AlertConfig => {
     config.enabled = patch.enabled;
     restartTimer();
   }
-  if (patch.webhook_url !== undefined) config.webhook_url = patch.webhook_url;
+  if (patch.channel !== undefined) {
+    const valid: AlertChannel[] = ['custom', 'feishu', 'telegram', 'qmsg'];
+    if (valid.includes(patch.channel)) config.channel = patch.channel;
+  }
+  if (patch.custom_url !== undefined) config.custom_url = patch.custom_url;
+  if (patch.feishu_token !== undefined) config.feishu_token = patch.feishu_token;
+  if (patch.telegram_bot_token !== undefined) config.telegram_bot_token = patch.telegram_bot_token;
+  if (patch.telegram_chat_id !== undefined) config.telegram_chat_id = patch.telegram_chat_id;
+  if (patch.qmsg_key !== undefined) config.qmsg_key = patch.qmsg_key;
   if (patch.thresholds !== undefined) {
     const arr = patch.thresholds.filter((v) => Number.isFinite(v) && v > 0 && v <= 100);
     if (arr.length > 0) config.thresholds = arr;
@@ -80,7 +93,9 @@ const collectAlerts = (overview: OverviewResponse): AlertItem[] => {
   return alerts;
 };
 
-const sendWebhook = async (url: string, payload: unknown): Promise<{ ok: boolean; error?: string }> => {
+// ── Channel senders ──
+
+const sendCustom = async (url: string, payload: unknown): Promise<{ ok: boolean; error?: string }> => {
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -94,20 +109,125 @@ const sendWebhook = async (url: string, payload: unknown): Promise<{ ok: boolean
   }
 };
 
+const extractFeishuToken = (raw: string): string => {
+  // If user pasted the full webhook URL, extract the token part
+  const match = raw.match(/hook\/([a-zA-Z0-9_-]+)/);
+  return match ? match[1] : raw;
+};
+
+const sendFeishu = async (rawToken: string, content: string): Promise<{ ok: boolean; error?: string }> => {
+  try {
+    const token = extractFeishuToken(rawToken);
+    const url = `https://open.feishu.cn/open-apis/bot/v2/hook/${token}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ msg_type: 'text', content: { text: content } }),
+    });
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      const msg = typeof body.msg === 'string' ? body.msg : '';
+      return { ok: false, error: `HTTP ${res.status}${msg ? `: ${msg}` : ''}` };
+    }
+    // Feishu returns HTTP 200 with code != 0 for business errors
+    const code = typeof body.code === 'number' ? body.code : -1;
+    if (code !== 0) {
+      const msg = typeof body.msg === 'string' ? body.msg : 'unknown error';
+      return { ok: false, error: `飞书返回错误 (${code}): ${msg}` };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' };
+  }
+};
+
+const sendTelegram = async (botToken: string, chatId: string, content: string): Promise<{ ok: boolean; error?: string }> => {
+  try {
+    const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text: content, parse_mode: 'HTML' }),
+    });
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      const desc = typeof body.description === 'string' ? body.description : '';
+      return { ok: false, error: `HTTP ${res.status}${desc ? `: ${desc}` : ''}` };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' };
+  }
+};
+
+const sendQmsg = async (key: string, content: string): Promise<{ ok: boolean; error?: string }> => {
+  try {
+    const url = `https://qmsg.zendee.cn/send/${key}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `msg=${encodeURIComponent(content)}`,
+    });
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return { ok: false, error: `HTTP ${res.status}` };
+    }
+    // Qmsg returns HTTP 200 with success:false for business errors
+    if (body.success === false) {
+      const reason = typeof body.reason === 'string' ? body.reason : 'unknown error';
+      return { ok: false, error: `Qmsg 返回错误: ${reason}` };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' };
+  }
+};
+
+// ── Dispatch ──
+
+const dispatchAlert = async (content: string): Promise<{ ok: boolean; error?: string }> => {
+  switch (config.channel) {
+    case 'feishu':
+      if (!config.feishu_token) return { ok: false, error: '未配置飞书 Token' };
+      return sendFeishu(config.feishu_token, content);
+    case 'telegram':
+      if (!config.telegram_bot_token || !config.telegram_chat_id) return { ok: false, error: '未配置 Telegram Bot Token 或 Chat ID' };
+      return sendTelegram(config.telegram_bot_token, config.telegram_chat_id, content);
+    case 'qmsg':
+      if (!config.qmsg_key) return { ok: false, error: '未配置 Qmsg Key' };
+      return sendQmsg(config.qmsg_key, content);
+    default:
+      if (!config.custom_url) return { ok: false, error: '未配置 Webhook URL' };
+      return sendCustom(config.custom_url, {
+        title: '配额告警',
+        content,
+      });
+  }
+};
+
+const validateChannelConfig = (): { ok: boolean; error?: string } => {
+  switch (config.channel) {
+    case 'feishu':
+      if (!config.feishu_token) return { ok: false, error: '未配置飞书 Token' };
+      return { ok: true };
+    case 'telegram':
+      if (!config.telegram_bot_token || !config.telegram_chat_id) return { ok: false, error: '未配置 Telegram Bot Token 或 Chat ID' };
+      return { ok: true };
+    case 'qmsg':
+      if (!config.qmsg_key) return { ok: false, error: '未配置 Qmsg Key' };
+      return { ok: true };
+    default:
+      if (!config.custom_url) return { ok: false, error: '未配置 Webhook URL' };
+      return { ok: true };
+  }
+};
+
 export const sendTestWebhook = async (): Promise<{ ok: boolean; error?: string }> => {
-  if (!config.webhook_url) return { ok: false, error: 'No webhook URL configured' };
-  return sendWebhook(config.webhook_url, {
-    title: '测试告警',
-    content: '这是一条测试消息，用于验证 Webhook 连接是否正常。',
-    alerts: [{
-      provider: 'TestProvider',
-      account: 'test@example.com',
-      quota: '测试配额',
-      remaining_percent: 25,
-      threshold: 50,
-      reset_at: null,
-    }],
-  });
+  const validation = validateChannelConfig();
+  if (!validation.ok) return validation;
+
+  const testContent = '这是一条测试消息，用于验证通知渠道连接是否正常。';
+  return dispatchAlert(testContent);
 };
 
 const tick = async (): Promise<void> => {
@@ -122,22 +242,13 @@ const tick = async (): Promise<void> => {
   const alerts = collectAlerts(overview);
   if (alerts.length > 0) {
     // eslint-disable-next-line no-console
-    console.log(`[alert] ${alerts.length} quota alert(s) triggered, sending webhook…`);
+    console.log(`[alert] ${alerts.length} quota alert(s) triggered, sending via ${config.channel}…`);
     const lines = alerts.map((a) => {
       const pct = `${Math.round(a.item.remaining_percent)}%`;
       return `[${a.provider.name}] ${a.account.label || a.account.name} — ${a.item.label}: 剩余 ${pct}（阈值 ${a.threshold}%）`;
     });
-    await sendWebhook(config.webhook_url, {
-      title: `配额告警 (${alerts.length} 条)`,
-      content: lines.join('\n'),
-      alerts: alerts.map((a) => ({
-        provider: a.provider.name,
-        account: a.account.label || a.account.name,
-        quota: a.item.label,
-        remaining_percent: a.item.remaining_percent,
-        threshold: a.threshold,
-      })),
-    });
+    const content = `配额告警 (${alerts.length} 条)\n\n${lines.join('\n')}`;
+    await dispatchAlert(content);
   }
 };
 

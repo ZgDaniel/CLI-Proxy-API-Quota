@@ -118,9 +118,16 @@ export interface SessionResponse {
   authenticated: boolean;
 }
 
+export type AlertChannel = 'custom' | 'feishu' | 'telegram' | 'qmsg';
+
 export interface AlertConfig {
   enabled: boolean;
-  webhook_url: string;
+  channel: AlertChannel;
+  custom_url: string;
+  feishu_token: string;
+  telegram_bot_token: string;
+  telegram_chat_id: string;
+  qmsg_key: string;
   thresholds: number[];
   refresh_interval_seconds: number;
 }

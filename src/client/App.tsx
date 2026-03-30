@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { AlertConfig, AlertConfigResponse, AlertTestResponse, OverviewAccount, OverviewProvider, OverviewResponse, SessionResponse } from '../shared/types';
+import type { AlertConfig, AlertChannel, AlertConfigResponse, AlertTestResponse, OverviewAccount, OverviewProvider, OverviewResponse, SessionResponse } from '../shared/types';
 
 type LoadState = 'checking' | 'login' | 'dashboard' | 'public';
 
@@ -198,7 +198,12 @@ function AlertPanel({ config, onSave, onTest }: {
 }) {
   const [editing, setEditing] = useState(false);
   const [enabled, setEnabled] = useState(config.enabled);
-  const [webhookUrl, setWebhookUrl] = useState(config.webhook_url);
+  const [channel, setChannel] = useState<AlertChannel>(config.channel);
+  const [customUrl, setCustomUrl] = useState(config.custom_url);
+  const [feishuToken, setFeishuToken] = useState(config.feishu_token);
+  const [telegramBotToken, setTelegramBotToken] = useState(config.telegram_bot_token);
+  const [telegramChatId, setTelegramChatId] = useState(config.telegram_chat_id);
+  const [qmsgKey, setQmsgKey] = useState(config.qmsg_key);
   const [thresholds, setThresholds] = useState<number[]>(config.thresholds);
   const [interval, setInterval2] = useState(config.refresh_interval_seconds);
   const [saving, setSaving] = useState(false);
@@ -207,15 +212,48 @@ function AlertPanel({ config, onSave, onTest }: {
 
   useEffect(() => {
     setEnabled(config.enabled);
-    setWebhookUrl(config.webhook_url);
+    setChannel(config.channel);
+    setCustomUrl(config.custom_url);
+    setFeishuToken(config.feishu_token);
+    setTelegramBotToken(config.telegram_bot_token);
+    setTelegramChatId(config.telegram_chat_id);
+    setQmsgKey(config.qmsg_key);
     setThresholds(config.thresholds);
     setInterval2(config.refresh_interval_seconds);
   }, [config]);
 
+  const channelConfigValid = (): boolean => {
+    switch (channel) {
+      case 'feishu': return feishuToken.trim().length > 0;
+      case 'telegram': return telegramBotToken.trim().length > 0 && telegramChatId.trim().length > 0;
+      case 'qmsg': return qmsgKey.trim().length > 0;
+      default: return customUrl.trim().length > 0;
+    }
+  };
+
+  const channelLabel = (ch: AlertChannel): string => {
+    switch (ch) {
+      case 'custom': return '通用 Webhook';
+      case 'feishu': return '飞书机器人';
+      case 'telegram': return 'Telegram';
+      case 'qmsg': return 'Qmsg 酱';
+    }
+  };
+
   const handleSave = async () => {
     setSaving(true);
     try {
-      await onSave({ enabled, webhook_url: webhookUrl, thresholds, refresh_interval_seconds: interval });
+      await onSave({
+        enabled,
+        channel,
+        custom_url: customUrl,
+        feishu_token: feishuToken,
+        telegram_bot_token: telegramBotToken,
+        telegram_chat_id: telegramChatId,
+        qmsg_key: qmsgKey,
+        thresholds,
+        refresh_interval_seconds: interval,
+      });
       setEditing(false);
     } catch {
       // error handled by api helper
@@ -228,8 +266,15 @@ function AlertPanel({ config, onSave, onTest }: {
     setTesting(true);
     setTestResult(null);
     try {
-      // Save first to ensure webhook URL is updated
-      await onSave({ webhook_url: webhookUrl });
+      await onSave({
+        enabled,
+        channel,
+        custom_url: customUrl,
+        feishu_token: feishuToken,
+        telegram_bot_token: telegramBotToken,
+        telegram_chat_id: telegramChatId,
+        qmsg_key: qmsgKey,
+      });
       const result = await onTest();
       setTestResult(result);
     } catch {
@@ -260,7 +305,7 @@ function AlertPanel({ config, onSave, onTest }: {
       <header className="alert-panel__header">
         <div>
           <p className="alert-panel__eyebrow">监控告警</p>
-          <h2 className="alert-panel__title">配额 Webhook 告警</h2>
+          <h2 className="alert-panel__title">配额告警通知</h2>
         </div>
         <div className="alert-panel__status">
           <span className={`status-pill ${config.enabled ? 'is-live' : 'is-muted'}`}>
@@ -278,27 +323,94 @@ function AlertPanel({ config, onSave, onTest }: {
             <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
             启用告警
           </label>
-          <label>
-            Webhook URL
-            <div className="alert-form__row">
+          <div>
+            <span className="alert-form__label">通知渠道</span>
+            <div className="alert-channel-tabs">
+              {(['custom', 'feishu', 'telegram', 'qmsg'] as AlertChannel[]).map((ch) => (
+                <label key={ch} className={`alert-channel-tab ${channel === ch ? 'is-active' : ''}`}>
+                  <input
+                    type="radio"
+                    name="alert-channel"
+                    value={ch}
+                    checked={channel === ch}
+                    onChange={() => setChannel(ch)}
+                  />
+                  {channelLabel(ch)}
+                </label>
+              ))}
+            </div>
+          </div>
+          {channel === 'custom' ? (
+            <label>
+              Webhook URL
               <input
                 type="url"
-                value={webhookUrl}
-                onChange={(e) => setWebhookUrl(e.target.value)}
+                value={customUrl}
+                onChange={(e) => setCustomUrl(e.target.value)}
                 placeholder="https://your-webhook-endpoint/..."
               />
-              <button
-                className="alert-form__test-btn"
-                onClick={() => void handleTest()}
-                disabled={testing || !webhookUrl.trim()}
-              >
-                {testing ? '发送中...' : '测试'}
-              </button>
-            </div>
-          </label>
+            </label>
+          ) : null}
+          {channel === 'feishu' ? (
+            <label>
+              飞书 Webhook Token
+              <span className="alert-form__hint">在飞书群设置 → 自定义机器人 中获取，可粘贴完整 Webhook 地址或仅 Token</span>
+              <input
+                type="text"
+                value={feishuToken}
+                onChange={(e) => setFeishuToken(e.target.value)}
+                placeholder="完整地址或 Token，如 a1b2c3d4-e5f6-..."
+              />
+            </label>
+          ) : null}
+          {channel === 'telegram' ? (
+            <>
+              <label>
+                Bot Token
+                <span className="alert-form__hint">通过 @BotFather 创建 Bot 后获取</span>
+                <input
+                  type="text"
+                  value={telegramBotToken}
+                  onChange={(e) => setTelegramBotToken(e.target.value)}
+                  placeholder="如 123456:ABC-DEF..."
+                />
+              </label>
+              <label>
+                Chat ID
+                <span className="alert-form__hint">向 @userinfobot 发消息获取你的 Chat ID</span>
+                <input
+                  type="text"
+                  value={telegramChatId}
+                  onChange={(e) => setTelegramChatId(e.target.value)}
+                  placeholder="如 123456789"
+                />
+              </label>
+            </>
+          ) : null}
+          {channel === 'qmsg' ? (
+            <label>
+              Qmsg Key
+              <span className="alert-form__hint">在 qmsg.zendee.cn 登录后获取</span>
+              <input
+                type="text"
+                value={qmsgKey}
+                onChange={(e) => setQmsgKey(e.target.value)}
+                placeholder="如 a1b2c3d4e5..."
+              />
+            </label>
+          ) : null}
+          <div className="alert-form__row">
+            <button
+              className="alert-form__test-btn"
+              onClick={() => void handleTest()}
+              disabled={testing || !channelConfigValid()}
+            >
+              {testing ? '发送中...' : '测试连接'}
+            </button>
+          </div>
           {testResult !== null ? (
             <div className={testResult.ok ? 'empty-state' : 'error-box'}>
-              {testResult.ok ? 'Webhook 连接成功' : `连接失败: ${testResult.error}`}
+              {testResult.ok ? '连接测试成功' : `连接失败: ${testResult.error}`}
             </div>
           ) : null}
           <div>
@@ -333,7 +445,7 @@ function AlertPanel({ config, onSave, onTest }: {
           </label>
           <div className="alert-form__actions">
             <button onClick={() => setEditing(false)} className="ghost">取消</button>
-            <button onClick={() => void handleSave()} disabled={saving || !webhookUrl.trim()}>
+            <button onClick={() => void handleSave()} disabled={saving}>
               {saving ? '保存中...' : '保存'}
             </button>
           </div>
@@ -342,12 +454,12 @@ function AlertPanel({ config, onSave, onTest }: {
         <div className="alert-panel__summary">
           {config.enabled ? (
             <>
+              <span>渠道 {channelLabel(config.channel)}</span>
               <span>阈值 {config.thresholds.sort((a, b) => a - b).map((t) => `≤${t}%`).join('、')}</span>
               <span>每 {refreshIntervalOptions.find((o) => o.value === config.refresh_interval_seconds)?.label ?? `${config.refresh_interval_seconds}s`} 刷新</span>
-              <span className="alert-panel__url">{config.webhook_url ? new URL(config.webhook_url).host : '未配置'}</span>
             </>
           ) : (
-            <span>配置 Webhook 后可自动监控配额并在低于阈值时推送告警。</span>
+            <span>配置通知渠道后可自动监控配额并在低于阈值时推送告警。</span>
           )}
         </div>
       )}
@@ -438,7 +550,12 @@ export function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [alertConfig, setAlertConfig] = useState<AlertConfig>({
     enabled: false,
-    webhook_url: '',
+    channel: 'custom',
+    custom_url: '',
+    feishu_token: '',
+    telegram_bot_token: '',
+    telegram_chat_id: '',
+    qmsg_key: '',
     thresholds: [50],
     refresh_interval_seconds: 300,
   });
