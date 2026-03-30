@@ -73,6 +73,17 @@ export const setSessionCookie = (res: Response, value: string, rememberMe: boole
   });
 };
 
+export const getAnyActiveSession = (): { cpaBaseUrl: string; cpaManagementKey: string } | null => {
+  purgeExpired();
+  const now = Date.now();
+  for (const session of sessions.values()) {
+    if (session.expiresAt > now) {
+      return { cpaBaseUrl: session.cpaBaseUrl, cpaManagementKey: session.cpaManagementKey };
+    }
+  }
+  return null;
+};
+
 export const isAuthenticated = (req: Request): boolean => {
   return getSession(req) !== null;
 };

@@ -555,6 +555,117 @@ button:disabled {
   color: var(--muted);
 }
 
+/* ── Alert Panel ── */
+
+.alert-panel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+
+.alert-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.alert-panel__eyebrow {
+  color: var(--muted);
+  font-size: var(--size-micro);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  margin: 0 0 2px;
+}
+
+.alert-panel__title {
+  font-size: var(--size-body);
+  font-weight: 600;
+  margin: 0;
+}
+
+.alert-panel__status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.alert-panel__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: var(--size-small);
+}
+
+.alert-panel__url {
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+}
+
+.alert-form {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line-light);
+}
+
+.alert-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--text);
+  font-size: var(--size-small);
+  font-weight: 500;
+}
+
+.alert-form input[type='url'],
+.alert-form select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--size-body);
+  font-family: var(--font-ui);
+  transition: border-color 120ms ease;
+}
+
+.alert-form input[type='url']:focus,
+.alert-form select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.alert-form__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.alert-form__row input[type='range'] {
+  flex: 1;
+  accent-color: var(--accent);
+}
+
+.alert-form__threshold {
+  font-family: var(--font-mono);
+  font-size: var(--size-body);
+  min-width: 42px;
+  text-align: right;
+}
+
+.alert-form__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 /* ── Responsive ── */
 
 @media (max-width: 920px) {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { OverviewAccount, OverviewProvider, OverviewResponse, SessionResponse } from '../shared/types';
+import type { AlertConfig, AlertConfigResponse, OverviewAccount, OverviewProvider, OverviewResponse, SessionResponse } from '../shared/types';
 
 type LoadState = 'checking' | 'login' | 'dashboard' | 'public';
 
@@ -182,6 +182,115 @@ function AccountCard({
   );
 }
 
+const checkIntervalOptions = [
+  { value: 60, label: '1 分钟' },
+  { value: 300, label: '5 分钟' },
+  { value: 600, label: '10 分钟' },
+  { value: 1800, label: '30 分钟' },
+  { value: 3600, label: '1 小时' },
+  { value: 18000, label: '5 小时' },
+];
+
+function AlertPanel({ config, onSave }: { config: AlertConfig; onSave: (patch: Partial<AlertConfig>) => Promise<void> }) {
+  const [editing, setEditing] = useState(false);
+  const [enabled, setEnabled] = useState(config.enabled);
+  const [webhookUrl, setWebhookUrl] = useState(config.webhook_url);
+  const [threshold, setThreshold] = useState(config.threshold);
+  const [interval, setInterval2] = useState(config.check_interval_seconds);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setEnabled(config.enabled);
+    setWebhookUrl(config.webhook_url);
+    setThreshold(config.threshold);
+    setInterval2(config.check_interval_seconds);
+  }, [config]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    await onSave({ enabled, webhook_url: webhookUrl, threshold, check_interval_seconds: interval });
+    setEditing(false);
+    setSaving(false);
+  };
+
+  return (
+    <section className="alert-panel">
+      <header className="alert-panel__header">
+        <div>
+          <p className="alert-panel__eyebrow">监控告警</p>
+          <h2 className="alert-panel__title">配额 Webhook 告警</h2>
+        </div>
+        <div className="alert-panel__status">
+          <span className={`status-pill ${config.enabled ? 'is-live' : 'is-muted'}`}>
+            {config.enabled ? '已启用' : '未启用'}
+          </span>
+          {!editing ? (
+            <button onClick={() => setEditing(true)}>配置</button>
+          ) : null}
+        </div>
+      </header>
+
+      {editing ? (
+        <div className="alert-form">
+          <label className="remember">
+            <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+            启用告警
+          </label>
+          <label>
+            Webhook URL
+            <input
+              type="url"
+              value={webhookUrl}
+              onChange={(e) => setWebhookUrl(e.target.value)}
+              placeholder="https://your-webhook-endpoint/..."
+            />
+          </label>
+          <label>
+            告警阈值（剩余百分比低于此值时触发）
+            <div className="alert-form__row">
+              <input
+                type="range"
+                min={5}
+                max={95}
+                step={5}
+                value={threshold}
+                onChange={(e) => setThreshold(Number(e.target.value))}
+              />
+              <strong className="alert-form__threshold">{threshold}%</strong>
+            </div>
+          </label>
+          <label>
+            检查间隔
+            <select value={interval} onChange={(e) => setInterval2(Number(e.target.value))}>
+              {checkIntervalOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </label>
+          <div className="alert-form__actions">
+            <button onClick={() => setEditing(false)} className="ghost">取消</button>
+            <button onClick={() => void handleSave()} disabled={saving || !webhookUrl.trim()}>
+              {saving ? '保存中...' : '保存'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="alert-panel__summary">
+          {config.enabled ? (
+            <>
+              <span>阈值 ≤ {config.threshold}%</span>
+              <span>每 {checkIntervalOptions.find((o) => o.value === config.check_interval_seconds)?.label ?? `${config.check_interval_seconds}s`} 检查</span>
+              <span className="alert-panel__url">{config.webhook_url ? new URL(config.webhook_url).host : '未配置'}</span>
+            </>
+          ) : (
+            <span>配置 Webhook 后可自动监控配额并在低于阈值时推送告警。</span>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function ProviderSection({ provider, isPublic }: { provider: OverviewProvider; isPublic?: boolean }) {
   const accent = providerAccent[provider.id] ?? '#d3d3d3';
   const visibleAccounts = isPublic ? provider.accounts.filter((a) => !a.disabled) : provider.accounts;
@@ -263,6 +372,29 @@ export function App() {
   const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [alertConfig, setAlertConfig] = useState<AlertConfig>({
+    enabled: false,
+    webhook_url: '',
+    threshold: 50,
+    check_interval_seconds: 300,
+  });
+
+  const loadAlertConfig = async () => {
+    try {
+      const res = await api<AlertConfigResponse>('/api/alert');
+      setAlertConfig(res.config);
+    } catch {
+      // ignore — alert config is optional
+    }
+  };
+
+  const saveAlertConfig = async (patch: Partial<AlertConfig>) => {
+    const res = await api<AlertConfigResponse>('/api/alert', {
+      method: 'POST',
+      body: JSON.stringify(patch),
+    });
+    setAlertConfig(res.config);
+  };
 
   const loadOverview = async (force = false) => {
     setRefreshing(true);
@@ -312,6 +444,7 @@ export function App() {
           return;
         }
         await loadOverview(false);
+        void loadAlertConfig();
       } catch {
         if (!active) return;
         setState('login');
@@ -478,6 +611,8 @@ export function App() {
             <span>Usage 缓存 {fmtDateTime(overview.cache.usage_refreshed_at)}</span>
             <span>Quota 缓存 {fmtDateTime(overview.cache.quota_refreshed_at)}</span>
           </section>
+
+          <AlertPanel config={alertConfig} onSave={(patch) => saveAlertConfig(patch)} />
 
           {error ? <div className="error-box">{error}</div> : null}
 

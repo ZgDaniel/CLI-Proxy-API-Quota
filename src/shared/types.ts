@@ -117,3 +117,16 @@ export interface OverviewResponse {
 export interface SessionResponse {
   authenticated: boolean;
 }
+
+export interface AlertConfig {
+  enabled: boolean;
+  webhook_url: string;
+  threshold: number;
+  check_interval_seconds: number;
+}
+
+export interface AlertConfigResponse {
+  config: AlertConfig;
+}
+
+export type CheckIntervalOption = 60 | 300 | 600 | 1800 | 3600 | 18000;

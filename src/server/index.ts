@@ -3,9 +3,10 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import { appConfig } from './config.js';
 import { buildOverview } from './overview.js';
-import { clearSession, createSession, getSession, isAuthenticated, setSessionCookie } from './session.js';
+import { clearSession, createSession, getSession, getAnyActiveSession, isAuthenticated, setSessionCookie } from './session.js';
 import { createCpaClient, normalizeCpaBaseUrl } from './cpaClient.js';
-import type { OverviewResponse, SessionResponse } from '../shared/types.js';
+import type { OverviewResponse, SessionResponse, AlertConfigResponse, AlertConfig } from '../shared/types.js';
+import { getAlertConfig, updateAlertConfig, startAlertScheduler } from './alert.js';
 
 const app = express();
 let publicOverview: OverviewResponse | null = null;
@@ -130,6 +131,22 @@ app.post('/api/refresh', authRequired, async (req, res) => {
   }
 });
 
+app.get('/api/alert', authRequired, (_req, res) => {
+  const payload: AlertConfigResponse = { config: getAlertConfig() };
+  res.json(payload);
+});
+
+app.post('/api/alert', authRequired, (req, res) => {
+  const patch: Partial<AlertConfig> = {};
+  if (typeof req.body?.enabled === 'boolean') patch.enabled = req.body.enabled;
+  if (typeof req.body?.webhook_url === 'string') patch.webhook_url = req.body.webhook_url.trim();
+  if (req.body?.threshold !== undefined) patch.threshold = req.body.threshold;
+  if (req.body?.check_interval_seconds !== undefined) patch.check_interval_seconds = req.body.check_interval_seconds;
+  const updated = updateAlertConfig(patch);
+  const payload: AlertConfigResponse = { config: updated };
+  res.json(payload);
+});
+
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(appConfig.publicDir));
   app.get('/{*path}', (_req, res) => {
@@ -140,4 +157,7 @@ if (process.env.NODE_ENV === 'production') {
 app.listen(appConfig.port, () => {
   // eslint-disable-next-line no-console
   console.log(`CPA quota server listening on http://localhost:${appConfig.port}`);
+  startAlertScheduler(async () => {
+    return getAnyActiveSession();
+  });
 });
