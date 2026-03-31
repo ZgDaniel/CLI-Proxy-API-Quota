@@ -34,6 +34,8 @@
 | `SESSION_SECRET` | 会话 Cookie 签名密钥 | - |
 | `USAGE_TTL_SECONDS` | 使用量缓存 TTL | `30` |
 | `QUOTA_TTL_SECONDS` | 配额缓存 TTL | `300` |
+| `SCHEDULER_CPA_BASE_URL` | 调度器 CPA 后端地址（可选，不设则登录后自动持久化） | - |
+| `SCHEDULER_CPA_MANAGEMENT_KEY` | 调度器 CPA 管理密钥（可选，不设则登录后自动持久化） | - |
 
 ## 开发
 
@@ -71,6 +73,17 @@ src/
 └── shared/
     └── types.ts     # 前后端共享的 TypeScript 类型定义
 ```
+
+## Agent 必读
+
+- **公共页面自动刷新**依赖后台调度器，调度器凭据通过以下优先级获取：环境变量 `SCHEDULER_CPA_BASE_URL` + `SCHEDULER_CPA_MANAGEMENT_KEY` > 持久化文件 `.data/scheduler-credentials.json` > 内存 session。首次部署后访问 `/admin` 登录一次即可自动持久化凭据，之后服务重启也不影响公共页面刷新。
+- **调度器启动时立即刷新一次**，不等第一个间隔周期，确保公共页面在服务重启后尽快有数据。
+- **告警配置（阈值、渠道、刷新间隔）存储在内存中**，服务重启后重置为默认值（刷新间隔 300 秒）。如需持久化需后续扩展。
+- **残留进程会导致端口冲突**：部署或重启时确保旧进程已完全退出（`ps aux | grep dist/server/server/index`），否则新进程无法正常绑定端口。
+- **`.data/`** 目录存放调度器持久化凭据，已在 `.gitignore` 中排除，不应提交到仓库。
+- **前端公共页面状态机**：`loadPublicOverview()` 即使请求失败（如 404）也会进入 `'public'` 状态，确保轮询定时器正常启动，后续请求成功后数据会自动填充。
+- **`tick()` 中 `buildOverview()` 失败会打印日志**（`[scheduler] buildOverview failed: ...`），不会静默吞掉错误。排查公共页面不刷新时，先查 `journalctl -u cpa-quota.service` 中是否有该日志。
+- **`Restart=always`**：systemd 配置为无条件重启，进程正常退出也会被拉起。如不希望此行为，改为 `Restart=on-failure`。
 
 ## License
 
