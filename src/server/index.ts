@@ -171,7 +171,10 @@ if (process.env.NODE_ENV === 'production') {
 app.listen(appConfig.port, () => {
   // eslint-disable-next-line no-console
   console.log(`CPA quota server listening on http://localhost:${appConfig.port}`);
-  startAlertScheduler(async () => {
-    return getAnyActiveSession();
-  });
+  startAlertScheduler(
+    async () => getAnyActiveSession(),
+    (overview) => {
+      publicOverview = overview;
+    },
+  );
 });

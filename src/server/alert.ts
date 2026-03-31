@@ -15,6 +15,7 @@ const DEFAULT_CONFIG: AlertConfig = {
 let config: AlertConfig = { ...DEFAULT_CONFIG };
 let timer: ReturnType<typeof setInterval> | null = null;
 let onTick: (() => Promise<{ cpaBaseUrl: string; cpaManagementKey: string } | null>) | null = null;
+let onOverview: ((overview: OverviewResponse) => void) | null = null;
 
 // key: `${auth_index}:${item_id}:${threshold}` → value: reset_at
 const alertedWindows = new Map<string, string>();
@@ -231,13 +232,17 @@ export const sendTestWebhook = async (): Promise<{ ok: boolean; error?: string }
 };
 
 const tick = async (): Promise<void> => {
-  if (!config.enabled || !onTick) return;
+  if (!onTick) return;
   const creds = await onTick();
   if (!creds) return;
 
   const { buildOverview } = await import('./overview.js');
   const overview = await buildOverview(creds).catch(() => null);
   if (!overview) return;
+
+  onOverview?.(overview);
+
+  if (!config.enabled) return;
 
   const alerts = collectAlerts(overview);
   if (alerts.length > 0) {
@@ -255,7 +260,7 @@ const tick = async (): Promise<void> => {
 const restartTimer = (): void => {
   if (timer) clearInterval(timer);
   timer = null;
-  if (config.enabled && config.refresh_interval_seconds > 0) {
+  if (onTick && config.refresh_interval_seconds > 0) {
     timer = setInterval(() => {
       void tick();
     }, config.refresh_interval_seconds * 1000);
@@ -264,8 +269,10 @@ const restartTimer = (): void => {
 
 export const startAlertScheduler = (
   credentialProvider: () => Promise<{ cpaBaseUrl: string; cpaManagementKey: string } | null>,
+  overviewListener?: (overview: OverviewResponse) => void,
 ): void => {
   onTick = credentialProvider;
+  onOverview = overviewListener ?? null;
   restartTimer();
 };
 
