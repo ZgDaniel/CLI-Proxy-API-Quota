@@ -607,10 +607,13 @@ export function App() {
       const next = await api<OverviewResponse>('/api/public-overview');
       setOverview(next);
       setError('');
-      setState('public');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load overview');
+      if (!overview) {
+        // First load failed (e.g. server still seeding), keep error for display
+        setError(err instanceof Error ? err.message : '数据尚未就绪，等待后端刷新…');
+      }
     } finally {
+      setState('public');
       setRefreshing(false);
     }
   };

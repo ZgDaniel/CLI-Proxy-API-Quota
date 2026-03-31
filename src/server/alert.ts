@@ -237,7 +237,11 @@ const tick = async (): Promise<void> => {
   if (!creds) return;
 
   const { buildOverview } = await import('./overview.js');
-  const overview = await buildOverview(creds).catch(() => null);
+  const overview = await buildOverview(creds).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.log(`[scheduler] buildOverview failed: ${err instanceof Error ? err.message : err}`);
+    return null;
+  });
   if (!overview) return;
 
   onOverview?.(overview);
@@ -274,6 +278,8 @@ export const startAlertScheduler = (
   onTick = credentialProvider;
   onOverview = overviewListener ?? null;
   restartTimer();
+  // Fire one immediate tick so publicOverview is seeded right away
+  void tick();
 };
 
 export const getRefreshIntervalMs = (): number => config.refresh_interval_seconds * 1000;

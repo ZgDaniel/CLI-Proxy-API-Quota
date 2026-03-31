@@ -7,6 +7,7 @@ import { clearSession, createSession, getSession, getAnyActiveSession, isAuthent
 import { createCpaClient, normalizeCpaBaseUrl } from './cpaClient.js';
 import type { OverviewResponse, SessionResponse, AlertConfigResponse, AlertConfig, AlertTestResponse } from '../shared/types.js';
 import { getAlertConfig, updateAlertConfig, startAlertScheduler, sendTestWebhook } from './alert.js';
+import { saveSchedulerCredentials, loadSchedulerCredentials } from './credentials.js';
 
 const app = express();
 let publicOverview: OverviewResponse | null = null;
@@ -86,6 +87,7 @@ app.post('/api/login', async (req, res) => {
 
   const session = createSession({ rememberMe, cpaBaseUrl, cpaManagementKey });
   setSessionCookie(res, session, rememberMe);
+  saveSchedulerCredentials({ cpaBaseUrl, cpaManagementKey });
   res.json({ authenticated: true });
 });
 
@@ -172,7 +174,7 @@ app.listen(appConfig.port, () => {
   // eslint-disable-next-line no-console
   console.log(`CPA quota server listening on http://localhost:${appConfig.port}`);
   startAlertScheduler(
-    async () => getAnyActiveSession(),
+    async () => loadSchedulerCredentials() ?? getAnyActiveSession(),
     (overview) => {
       publicOverview = overview;
     },

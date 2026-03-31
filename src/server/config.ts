@@ -22,4 +22,6 @@ export const appConfig = {
   quotaTtlMs: optionalNumber('QUOTA_TTL_SECONDS', 300) * 1000,
   cookieName: process.env.COOKIE_NAME?.trim() || 'quota_session',
   publicDir: path.resolve(process.cwd(), 'dist/client'),
+  schedulerCpaBaseUrl: process.env.SCHEDULER_CPA_BASE_URL?.trim() || null,
+  schedulerCpaManagementKey: process.env.SCHEDULER_CPA_MANAGEMENT_KEY?.trim() || null,
 };
